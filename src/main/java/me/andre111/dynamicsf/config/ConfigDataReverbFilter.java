@@ -31,7 +31,6 @@ import net.minecraft.util.Identifier;
 import net.minecraft.util.math.BlockPos;
 import net.minecraft.world.EmptyBlockView;
 
-@SuppressWarnings("deprecation")
 public class ConfigDataReverbFilter {
 	public static final List<Identifier> DEFAULT_LOW_REVERB_BLOCKS = new ArrayList<>();
 	public static final List<Identifier> DEFAULT_HIGH_REVERB_BLOCKS = new ArrayList<>();
@@ -41,7 +40,7 @@ public class ConfigDataReverbFilter {
 			BlockState state = block.getDefaultState();
 			
 			// special overrides
-			if(block.getCollisionShape(state, EmptyBlockView.INSTANCE, BlockPos.ORIGIN, ShapeContext.absent()).isEmpty()) {
+			if(state.getCollisionShape(EmptyBlockView.INSTANCE, BlockPos.ORIGIN, ShapeContext.absent()).isEmpty()) {
 				continue;
 			}
 			if(block instanceof FlowerPotBlock) {
@@ -49,7 +48,7 @@ public class ConfigDataReverbFilter {
 				continue;
 			}
 			
-			BlockSoundGroup soundGroup = block.getSoundGroup(state);
+			BlockSoundGroup soundGroup = state.getSoundGroup();
 			// Groups in comments are skipped -> mid reverb
 			// INTENTIONALLY_EMPTY
 			if(soundGroup == BlockSoundGroup.WOOD) DEFAULT_LOW_REVERB_BLOCKS.add(blockID);
