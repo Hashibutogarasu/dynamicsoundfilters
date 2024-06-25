@@ -169,7 +169,7 @@ public class ConfigDataReverbFilter {
 	
 	private void calculateCache() {
 		if(!cached) {
-			dimensionBaseReverbMap = ConfigHelper.parseToMap(dimensionBaseReverb, Identifier::new, Float::parseFloat);
+			dimensionBaseReverbMap = ConfigHelper.parseToMap(dimensionBaseReverb, Identifier::of, Float::parseFloat);
 			
 			cached = true;
 		}

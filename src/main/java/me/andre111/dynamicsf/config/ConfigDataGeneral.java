@@ -44,7 +44,7 @@ public class ConfigDataGeneral {
 	
 	private void calculateCache() {
 		if(!cached) {
-			ignoredSoundEventsSet = ConfigHelper.parseToSet(ignoredSoundEvents, Identifier::new);
+			ignoredSoundEventsSet = ConfigHelper.parseToSet(ignoredSoundEvents, Identifier::of);
 			
 			cached = true;
 		}
