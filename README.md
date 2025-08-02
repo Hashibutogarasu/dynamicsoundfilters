@@ -3,6 +3,8 @@
 A Minecraft mod applying sound filters such as reverb in caves/the nether or muffling sounds underwater/behind walls based on the players current surroundings.
 For more details and prebuild downloads please visit the [CurseForge Project Page](https://www.curseforge.com/minecraft/mc-mods/dynamic-sound-filters).
 
+This is a fork of the original project by andre111: https://bitbucket.org/andre111/dynamicsoundfilters
+
 
 ## Building
 
