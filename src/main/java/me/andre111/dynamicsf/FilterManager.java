@@ -29,41 +29,48 @@ import net.minecraft.client.sound.SoundInstance;
 @Environment(EnvType.CLIENT)
 public class FilterManager {
 	private boolean disabled = false;
-	
+	private final ReverbFilter reverbFilter = new ReverbFilter();
+	private final ObstructionFilter obstructionFilter = new ObstructionFilter();
+
 	public void updateGlobal(MinecraftClient client) {
-		if(disabled) return;
-		
-		ReverbFilter.updateGlobal(client);
-		ObstructionFilter.updateGlobal(client);
+		if (disabled)
+			return;
+
+		reverbFilter.updateGlobal(client);
+		obstructionFilter.updateGlobal(client);
 	}
-	
+
 	public void updateSoundInstance(SoundInstance soundInstance, int sourceID) {
-		if(disabled) return;
-		if(Config.getData().general.isIgnoredSoundEvent(soundInstance.getId())) return;
-		
-		boolean includeReverb = ReverbFilter.updateSoundInstance(soundInstance);
-		boolean includeLowPass = ObstructionFilter.updateSoundInstance(soundInstance);
-		
-		AL11.alSourcei(sourceID, EXTEfx.AL_DIRECT_FILTER, includeLowPass ? ObstructionFilter.getID() : 0);
-		AL11.alSource3i(sourceID, EXTEfx.AL_AUXILIARY_SEND_FILTER, includeReverb ? ReverbFilter.getSlot() : 0, 0, includeLowPass ? ObstructionFilter.getID() : 0);
-		
+		if (disabled)
+			return;
+		if (Config.getData().general.isIgnoredSoundEvent(soundInstance.getId()))
+			return;
+
+		boolean includeReverb = reverbFilter.updateSoundInstance(soundInstance);
+		boolean includeLowPass = obstructionFilter.updateSoundInstance(soundInstance);
+
+		AL11.alSourcei(sourceID, EXTEfx.AL_DIRECT_FILTER, includeLowPass ? obstructionFilter.getFilterId() : 0);
+		AL11.alSource3i(sourceID, EXTEfx.AL_AUXILIARY_SEND_FILTER, includeReverb ? reverbFilter.getEffectSlot() : 0, 0,
+				includeLowPass ? obstructionFilter.getFilterId() : 0);
+
 		// retry once on error
 		int error = AL11.alGetError();
-		if(error != AL11.AL_NO_ERROR) {
-			DynamicSoundFilters.getLogger().warn("OpenAL error when applying sound filters: "+error);
+		if (error != AL11.AL_NO_ERROR) {
+			DynamicSoundFilters.getLogger().warn("OpenAL error when applying sound filters: " + error);
 			DynamicSoundFilters.getLogger().warn("Retrying...");
-			
-			ReverbFilter.reinit();
-			ObstructionFilter.reinit();
 
-			AL11.alSourcei(sourceID, EXTEfx.AL_DIRECT_FILTER, includeLowPass ? ObstructionFilter.getID() : 0);
-			AL11.alSource3i(sourceID, EXTEfx.AL_AUXILIARY_SEND_FILTER, includeReverb ? ReverbFilter.getSlot() : 0, 0, includeLowPass ? ObstructionFilter.getID() : 0);
+			reverbFilter.reinit();
+			obstructionFilter.reinit();
+
+			AL11.alSourcei(sourceID, EXTEfx.AL_DIRECT_FILTER, includeLowPass ? obstructionFilter.getFilterId() : 0);
+			AL11.alSource3i(sourceID, EXTEfx.AL_AUXILIARY_SEND_FILTER, includeReverb ? reverbFilter.getEffectSlot() : 0, 0,
+					includeLowPass ? obstructionFilter.getFilterId() : 0);
 		}
-		
+
 		// report further errors
 		error = AL11.alGetError();
-		if(error != AL11.AL_NO_ERROR) {
-			DynamicSoundFilters.getLogger().error("OpenAL error when applying sound filters: "+error);
+		if (error != AL11.AL_NO_ERROR) {
+			DynamicSoundFilters.getLogger().error("OpenAL error when applying sound filters: " + error);
 			DynamicSoundFilters.getLogger().error("Cannot apply filters - disabling");
 			disabled = true;
 		}

@@ -101,7 +101,7 @@ public class ConfigDataReverbFilter {
 			if(soundGroup == BlockSoundGroup.AZALEA) DEFAULT_LOW_REVERB_BLOCKS.add(blockID);
 			if(soundGroup == BlockSoundGroup.FLOWERING_AZALEA) DEFAULT_LOW_REVERB_BLOCKS.add(blockID);
 			if(soundGroup == BlockSoundGroup.MOSS_CARPET) DEFAULT_LOW_REVERB_BLOCKS.add(blockID);
-			if(soundGroup == BlockSoundGroup.PINK_PETALS) DEFAULT_LOW_REVERB_BLOCKS.add(blockID);
+			// if(soundGroup == BlockSoundGroup.PINK_PETALS) DEFAULT_LOW_REVERB_BLOCKS.add(blockID); // Not available in this version
 			if(soundGroup == BlockSoundGroup.MOSS_BLOCK) DEFAULT_LOW_REVERB_BLOCKS.add(blockID);
 			if(soundGroup == BlockSoundGroup.BIG_DRIPLEAF) DEFAULT_LOW_REVERB_BLOCKS.add(blockID);
 			if(soundGroup == BlockSoundGroup.SMALL_DRIPLEAF) DEFAULT_LOW_REVERB_BLOCKS.add(blockID);

@@ -24,6 +24,7 @@ import java.util.TreeSet;
 
 import org.lwjgl.openal.EXTEfx;
 
+import me.andre111.dynamicsf.api.AbstractReverbFilter;
 import me.andre111.dynamicsf.config.Config;
 import net.minecraft.block.BlockState;
 import net.minecraft.client.MinecraftClient;
@@ -37,59 +38,67 @@ import net.minecraft.util.math.MathHelper;
 import net.minecraft.world.Heightmap;
 import net.minecraft.world.chunk.Chunk;
 
-public class ReverbFilter {
-	private static int id = -1;
-	private static int slot = -1;
+/**
+ * New Reverb Filter implementation.
+ */
+public class ReverbFilter extends AbstractReverbFilter {
 
-	private static boolean enabled = false;
-	private static int tickCount = 0;
-	private static float prevDecayFactor = 0.0f;
-	private static float prevRoomFactor = 0.0f;
-	private static float prevSkyFactor = 0.0f;
+	private int tickCount = 0;
+	private float prevDecayFactor = 0.0f;
+	private float prevRoomFactor = 0.0f;
+	private float prevSkyFactor = 0.0f;
 
-	private static float density = 0.2f;
-	private static float diffusion = 0.6f;
-	private static float gain = 0.15f;
-	private static float gainHF = 0.8f;
-	private static float decayTime = 0.1f;
-	private static float decayHFRatio = 0.7f;
-	private static float reflectionsGain = 0.0f;
-	private static float reflectionsDelay = 0.0f;
-	private static float lateReverbGain = 0.0f;
-	private static float lateReverbDelay = 0.0f;
-	private static float airAbsorptionGainHF = 0.99f;
-	private static int decayHFLimit = 1;
+	// Reverb parameters
+	private float density = 0.2f;
+	private float diffusion = 0.6f;
+	private float gain = 0.15f;
+	private float gainHF = 0.8f;
+	private float decayTime = 0.1f;
+	private float decayHFRatio = 0.7f;
+	private float reflectionsGain = 0.0f;
+	private float reflectionsDelay = 0.0f;
+	private float lateReverbGain = 0.0f;
+	private float lateReverbDelay = 0.0f;
+	private float airAbsorptionGainHF = 0.99f;
+	private int decayHFLimit = 1;
 
-	public static void reinit() {
-		if(id > 0) EXTEfx.alDeleteEffects(id);
-		if(slot > 0) EXTEfx.alDeleteAuxiliaryEffectSlots(slot);
-		
-		id = EXTEfx.alGenEffects();
-		slot = EXTEfx.alGenAuxiliaryEffectSlots();
+	public ReverbFilter() {
+		super("Reverb");
 	}
-	
-	public static void updateGlobal(MinecraftClient client) {
-		if(client.world != null && client.player != null && client.isRunning()) {
-			update(client);
-		} else {
-			reset();
+
+	@Override
+	protected void update(MinecraftClient client) {
+		enabled = Config.getData().reverbFilter.enabled;
+
+		if (!enabled) {
+			return;
+		}
+
+		if (effectId == -1) {
+			reinit();
+		}
+
+		// Update reverb parameters
+		if (tickCount++ == 20) {
+			tickCount = 0;
+			updateReverbParameters(client);
+			applyReverbSettings();
 		}
 	}
 
-	public static boolean updateSoundInstance(SoundInstance soundInstance) {
-		if(!enabled) return false;
-		if(reflectionsDelay <= 0 && lateReverbDelay <= 0) return false;
-		if(id == -1) reinit();
-		if(id <= 0 || slot <= 0) return false;
+	@Override
+	protected boolean applyFilter(SoundInstance soundInstance) {
+		if (reflectionsDelay <= 0 && lateReverbDelay <= 0) {
+			return false;
+		}
+		if (effectId <= 0 || effectSlot <= 0) {
+			return false;
+		}
 		return true;
 	}
 
-	public static int getSlot() {
-		return slot;
-	}
-
-	private static void reset() {
-		enabled = false;
+	@Override
+	protected void resetReverbState() {
 		density = Config.getData().reverbFilter.density;
 		diffusion = Config.getData().reverbFilter.diffusion;
 		gain = Config.getData().reverbFilter.gain;
@@ -101,22 +110,171 @@ public class ReverbFilter {
 		lateReverbGain = 0;
 		lateReverbDelay = 0;
 		airAbsorptionGainHF = Config.getData().reverbFilter.airAbsorptionGainHF;
-		
-		density = MathHelper.clamp(density, EXTEfx.AL_REVERB_MIN_DENSITY, EXTEfx.AL_REVERB_MAX_DENSITY);
-		diffusion = MathHelper.clamp(diffusion, EXTEfx.AL_REVERB_MIN_DIFFUSION, EXTEfx.AL_REVERB_MAX_DIFFUSION);
-		gain = MathHelper.clamp(gain, EXTEfx.AL_REVERB_MIN_GAIN, EXTEfx.AL_REVERB_MAX_GAIN);
-		gainHF = MathHelper.clamp(gainHF, EXTEfx.AL_REVERB_MIN_GAINHF, EXTEfx.AL_REVERB_MAX_GAINHF);
-		decayHFRatio = MathHelper.clamp(decayHFRatio, EXTEfx.AL_REVERB_MIN_DECAY_HFRATIO, EXTEfx.AL_REVERB_MAX_DECAY_HFRATIO);
-		airAbsorptionGainHF = MathHelper.clamp(gainHF, EXTEfx.AL_REVERB_MIN_AIR_ABSORPTION_GAINHF, EXTEfx.AL_REVERB_MAX_AIR_ABSORPTION_GAINHF);
-		decayHFLimit = MathHelper.clamp(decayHFLimit, EXTEfx.AL_REVERB_MIN_DECAY_HFLIMIT, EXTEfx.AL_REVERB_MAX_DECAY_HFLIMIT);
+
+		// Clamping values
+		clampReverbValues();
 	}
 
-	private static void update(MinecraftClient client) {
-		enabled = Config.getData().reverbFilter.enabled;
+	/**
+	 * Update reverb parameters based on the current environment.
+	 */
+	private void updateReverbParameters(MinecraftClient client) {
 		int maxBlocks = Config.getData().reverbFilter.maxBlocks;
 		boolean checkSky = Config.getData().reverbFilter.checkSky;
 		float reverbPercent = Config.getData().reverbFilter.reverbPercent;
 		float minDecayTime = Config.getData().reverbFilter.minDecayTime;
+
+		// Get the base reverb value for the current dimension
+		Identifier dimension = client.world.getRegistryKey().getValue();
+		float baseReverb = Config.getData().reverbFilter.getDimensionBaseReverb(dimension);
+
+		BlockPos playerPos = getPlayerEyePosition(client);
+
+		// Scan the surroundings for blocks
+		ScanResult scanResult = scanSurroundings(client, playerPos, maxBlocks);
+
+		// Calculate decay factor, room factor, and sky factor
+		float decayFactor = calculateDecayFactor(baseReverb, scanResult.blocksFound);
+		float roomFactor = (float) scanResult.visited.size() / maxBlocks;
+		float skyFactor = calculateSkyFactor(client.world, playerPos, checkSky, scanResult.visited.size(), maxBlocks);
+
+		// Interpolate factors
+		decayFactor = (decayFactor + prevDecayFactor) / 2.0f;
+		roomFactor = (roomFactor + prevRoomFactor) / 2.0f;
+		skyFactor = (skyFactor + prevSkyFactor) / 2.0f;
+
+		// Save previous values
+		prevDecayFactor = decayFactor;
+		prevRoomFactor = roomFactor;
+		prevSkyFactor = skyFactor;
+
+		// Update reverb parameters
+		updateReverbValues(reverbPercent, minDecayTime, decayFactor, roomFactor, skyFactor);
+	}
+
+	/**
+	 * Get the player's eye position
+	 */
+	private BlockPos getPlayerEyePosition(MinecraftClient client) {
+		return new BlockPos(
+				MathHelper.floor(client.player.getPos().getX()),
+				MathHelper.floor(client.player.getPos().getY() + client.player.getEyeHeight(client.player.getPose())),
+				MathHelper.floor(client.player.getPos().getZ()));
+	}
+
+	/**
+	 * Store the results of a scan
+	 */
+	private static class ScanResult {
+		final Set<BlockPos> visited;
+		final List<Identifier> blocksFound;
+
+		ScanResult(Set<BlockPos> visited, List<Identifier> blocksFound) {
+			this.visited = visited;
+			this.blocksFound = blocksFound;
+		}
+	}
+
+	/**
+	 * Scan the surrounding blocks
+	 */
+	private ScanResult scanSurroundings(MinecraftClient client, BlockPos playerPos, int maxBlocks) {
+		Random random = new Random();
+		Set<BlockPos> visited = new TreeSet<>();
+		List<Identifier> blocksFound = new ArrayList<>();
+		List<BlockPos> toVisit = new LinkedList<>();
+		toVisit.add(playerPos);
+
+		for (int i = 0; i < maxBlocks && !toVisit.isEmpty(); ++i) {
+			BlockPos current = toVisit.remove(random.nextInt(toVisit.size()));
+			visited.add(current);
+
+			for (Direction direction : Direction.values()) {
+				BlockPos pos = current.offset(direction);
+				BlockState blockState = client.world.getBlockState(pos);
+				Identifier blockID = Registries.BLOCK.getId(blockState.getBlock());
+
+				if (!blockState.isSolidBlock(client.world, pos)) {
+					if (!visited.contains(pos) && !toVisit.contains(pos)) {
+						toVisit.add(pos);
+					}
+					if (!blockState.isAir() && blockState.getFluidState().isEmpty()) {
+						blocksFound.add(blockID);
+					}
+				} else {
+					blocksFound.add(blockID);
+				}
+			}
+		}
+
+		return new ScanResult(visited, blocksFound);
+	}
+
+	/**
+	 * Calculate the decay factor
+	 */
+	private float calculateDecayFactor(float baseReverb, List<Identifier> blocksFound) {
+		double highReverb = 0.0;
+		double midReverb = 0.0;
+		double lowReverb = 0.0;
+
+		for (Identifier blockID : blocksFound) {
+			if (Config.getData().reverbFilter.lowReverbBlocks.contains(blockID)) {
+				lowReverb += 1.0;
+			} else if (Config.getData().reverbFilter.highReverbBlocks.contains(blockID)) {
+				highReverb += 1.0;
+			} else {
+				midReverb += 1.0;
+			}
+		}
+
+		float decayFactor = baseReverb;
+		if (highReverb + midReverb + lowReverb > 0.0) {
+			decayFactor += (highReverb - lowReverb) / (highReverb + midReverb + lowReverb);
+		}
+
+		return Math.max(0, Math.min(decayFactor, 1));
+	}
+
+	/**
+	 * Calculate the sky factor
+	 */
+	private float calculateSkyFactor(ClientWorld world, BlockPos playerPos, boolean checkSky, int roomSize,
+			int maxBlocks) {
+		float skyFactor = 0;
+
+		if (checkSky && roomSize == maxBlocks) {
+			Random random = new Random();
+			if (hasSkyAbove(world, playerPos))
+				skyFactor += 1;
+
+			Direction[] directions = { Direction.NORTH, Direction.SOUTH, Direction.EAST, Direction.WEST };
+			for (Direction direction : directions) {
+				if (hasSkyAbove(world, playerPos.offset(direction, random.nextInt(5) + 5))) {
+					skyFactor += 1;
+				}
+				if (hasSkyAbove(world, playerPos.offset(direction, random.nextInt(5) + 5).offset(Direction.UP, 5))) {
+					skyFactor += 1;
+				}
+			}
+		}
+
+		skyFactor = 1.0f - skyFactor / 9.0f;
+		return skyFactor * skyFactor;
+	}
+
+	/**
+	 * Update the reverb values
+	 */
+	private void updateReverbValues(float reverbPercent, float minDecayTime, float decayFactor, float roomFactor,
+			float skyFactor) {
+		// Calculate the reverb time
+		decayTime = reverbPercent * 6.0f * decayFactor * roomFactor * skyFactor;
+		if (decayTime < minDecayTime) {
+			decayTime = minDecayTime;
+		}
+
+		// Calculate other parameters
 		float reflectionGainBase = Config.getData().reverbFilter.reflectionsGainBase;
 		float reflectionGainMultiplier = Config.getData().reverbFilter.reflectionsGainMultiplier;
 		float reflectionDelayMultiplier = Config.getData().reverbFilter.reflectionsDelayMultiplier;
@@ -124,140 +282,79 @@ public class ReverbFilter {
 		float lateReverbGainMultiplier = Config.getData().reverbFilter.lateReverbGainMultiplier;
 		float lateReverbDelayMultiplier = Config.getData().reverbFilter.lateReverbDelayMultiplier;
 
-		// get base reverb
-		Identifier dimension = client.world.getRegistryKey().getValue();
-		float baseReverb = Config.getData().reverbFilter.getDimensionBaseReverb(dimension);
+		reflectionsGain = reverbPercent * (reflectionGainBase + reflectionGainMultiplier * roomFactor);
+		reflectionsDelay = reflectionDelayMultiplier * roomFactor;
+		lateReverbGain = reverbPercent * (lateReverbGainBase + lateReverbGainMultiplier * roomFactor);
+		lateReverbDelay = lateReverbDelayMultiplier * roomFactor;
 
-		if(enabled && tickCount++ == 20) {
-			tickCount = 0;
-			
-			if(id == -1) reinit();
-
-			// scan surroundings
-			BlockPos playerPos = new BlockPos(
-					MathHelper.floor(client.player.getPos().getX()), 
-					MathHelper.floor(client.player.getPos().getY() + client.player.getEyeHeight(client.player.getPose())), 
-					MathHelper.floor(client.player.getPos().getZ())
-					);
-
-			// sample random blocks in surroundings
-			Random random = new Random();
-			Set<BlockPos> visited = new TreeSet<>();
-			List<Identifier> blocksFound = new ArrayList<>();
-			List<BlockPos> toVisit = new LinkedList<>();
-			toVisit.add(playerPos);
-			for (int i = 0; i < maxBlocks && !toVisit.isEmpty(); ++i) {
-				BlockPos current = toVisit.remove(random.nextInt(toVisit.size()));
-				visited.add(current);
-				for(Direction direction : Direction.values()) {
-					BlockPos pos = current.offset(direction);
-					BlockState blockState = client.world.getBlockState(pos);
-					Identifier blockID = Registries.BLOCK.getId(blockState.getBlock());
-					if (!blockState.isSolidBlock(client.world, pos)) {
-						if (!visited.contains(pos) && !toVisit.contains(pos)) {
-							toVisit.add(pos);
-						}
-						if (!blockState.isAir() && blockState.getFluidState().isEmpty()) {
-							blocksFound.add(blockID);
-						}
-					} else {
-						blocksFound.add(blockID);
-					}
-				}
-			}
-
-			// calculate decay factor
-			double highReverb = 0.0;
-			double midReverb = 0.0;
-			double lowReverb = 0.0;
-			for (Identifier blockID : blocksFound) {
-				if(Config.getData().reverbFilter.lowReverbBlocks.contains(blockID)) {
-					lowReverb += 1.0;
-				} else if(Config.getData().reverbFilter.highReverbBlocks.contains(blockID)) {
-					highReverb += 1.0;
-				} else {
-					midReverb += 1.0;
-				}
-			}
-			float decayFactor = baseReverb;
-			if (highReverb + midReverb + lowReverb > 0.0) {
-				decayFactor += (highReverb - lowReverb) / (highReverb + midReverb + lowReverb);
-			}
-			decayFactor = Math.max(0, Math.min(decayFactor, 1));
-
-			// calculate room factor
-			int roomSize = visited.size();
-			float roomFactor = roomSize / (float) maxBlocks;
-
-			// calculate sky factor
-			float skyFactor = 0;
-			if(checkSky && roomSize == maxBlocks) {
-				if(hasSkyAbove(client.world, playerPos)) skyFactor += 1;
-				Direction[] directions = new Direction[] { Direction.NORTH, Direction.SOUTH, Direction.EAST, Direction.WEST};
-				for(Direction direction : directions) {
-					if(hasSkyAbove(client.world, playerPos.offset(direction, random.nextInt(5) + 5))) skyFactor += 1;
-					if(hasSkyAbove(client.world, playerPos.offset(direction, random.nextInt(5) + 5).offset(Direction.UP, 5))) skyFactor += 1;
-				}
-			}
-			skyFactor = 1.0f - skyFactor / 9.0f;
-			skyFactor *= skyFactor;
-			
-			//DynamicSoundFilters.getLogger().info(highReverb + " " + midReverb + " " + lowReverb + " -> " + decayFactor + " " + roomFactor + " " + skyFactor);
-
-			// interpolate values
-			decayFactor = (decayFactor + prevDecayFactor) / 2.0f;
-			roomFactor = (roomFactor + prevRoomFactor) / 2.0f;
-			skyFactor = (skyFactor + prevSkyFactor) / 2.0f;
-			prevDecayFactor = decayFactor;
-			prevRoomFactor = roomFactor;
-			prevSkyFactor = skyFactor;
-
-			// update values
-			decayTime = reverbPercent * 6.0f * decayFactor * roomFactor * skyFactor;
-			if (decayTime < minDecayTime) {
-				decayTime = minDecayTime;
-			}
-			reflectionsGain = reverbPercent * (reflectionGainBase + reflectionGainMultiplier * roomFactor);
-			reflectionsDelay = reflectionDelayMultiplier * roomFactor;
-			lateReverbGain = reverbPercent * (lateReverbGainBase + lateReverbGainMultiplier * roomFactor);
-			lateReverbDelay = lateReverbDelayMultiplier * roomFactor;
-			
-			//DynamicSoundFilters.getLogger().info(" => " + decayTime + " " + reflectionsGain + " " + reflectionsDelay + " " + lateReverbGain + " " + lateReverbDelay);
-			
-			// clamp values
-			
-			decayTime = MathHelper.clamp(decayTime, EXTEfx.AL_REVERB_MIN_DECAY_TIME, EXTEfx.AL_REVERB_MAX_DECAY_TIME);
-			reflectionsGain = MathHelper.clamp(reflectionsGain, EXTEfx.AL_REVERB_MIN_REFLECTIONS_GAIN, EXTEfx.AL_REVERB_MAX_REFLECTIONS_GAIN);
-			reflectionsDelay = MathHelper.clamp(reflectionsDelay, EXTEfx.AL_REVERB_MIN_REFLECTIONS_DELAY, EXTEfx.AL_REVERB_MAX_REFLECTIONS_DELAY);
-			lateReverbGain = MathHelper.clamp(lateReverbGain, EXTEfx.AL_REVERB_MIN_LATE_REVERB_GAIN, EXTEfx.AL_REVERB_MAX_LATE_REVERB_GAIN);
-			lateReverbDelay = MathHelper.clamp(lateReverbDelay, EXTEfx.AL_REVERB_MIN_LATE_REVERB_DELAY, EXTEfx.AL_REVERB_MAX_LATE_REVERB_DELAY);
-			
-			// apply values
-			EXTEfx.alAuxiliaryEffectSlotf(slot, EXTEfx.AL_EFFECTSLOT_GAIN, 0);
-			{
-				EXTEfx.alEffecti(id, EXTEfx.AL_EFFECT_TYPE, EXTEfx.AL_EFFECT_REVERB);
-				EXTEfx.alEffectf(id, EXTEfx.AL_REVERB_DENSITY, density);
-				EXTEfx.alEffectf(id, EXTEfx.AL_REVERB_DIFFUSION, diffusion);
-				EXTEfx.alEffectf(id, EXTEfx.AL_REVERB_GAIN, gain);
-				EXTEfx.alEffectf(id, EXTEfx.AL_REVERB_GAINHF, gainHF);
-				EXTEfx.alEffectf(id, EXTEfx.AL_REVERB_DECAY_TIME, decayTime);
-				EXTEfx.alEffectf(id, EXTEfx.AL_REVERB_DECAY_HFRATIO, decayHFRatio);
-				EXTEfx.alEffectf(id, EXTEfx.AL_REVERB_REFLECTIONS_GAIN, reflectionsGain);
-				EXTEfx.alEffectf(id, EXTEfx.AL_REVERB_REFLECTIONS_DELAY, reflectionsDelay);
-				EXTEfx.alEffectf(id, EXTEfx.AL_REVERB_LATE_REVERB_GAIN, lateReverbGain);
-				EXTEfx.alEffectf(id, EXTEfx.AL_REVERB_LATE_REVERB_DELAY, lateReverbDelay);
-				EXTEfx.alEffectf(id, EXTEfx.AL_REVERB_AIR_ABSORPTION_GAINHF, airAbsorptionGainHF);
-				EXTEfx.alEffectf(id, EXTEfx.AL_REVERB_ROOM_ROLLOFF_FACTOR, 0.0f); // automatically managed
-				EXTEfx.alEffecti(id, EXTEfx.AL_REVERB_DECAY_HFLIMIT, decayHFLimit);
-			}
-			EXTEfx.alAuxiliaryEffectSloti(slot, EXTEfx.AL_EFFECTSLOT_EFFECT, id);
-			EXTEfx.alAuxiliaryEffectSlotf(slot, EXTEfx.AL_EFFECTSLOT_GAIN, 1);
-		}
+		// Clamp the reverb values
+		clampReverbValues();
 	}
 
-	private static boolean hasSkyAbove(ClientWorld world, BlockPos pos) {
-		if(world.getDimension().hasCeiling()) return false;
-		
+	/**
+	 * Clamp the reverb values
+	 */
+	private void clampReverbValues() {
+		density = MathHelper.clamp(density, EXTEfx.AL_REVERB_MIN_DENSITY, EXTEfx.AL_REVERB_MAX_DENSITY);
+		diffusion = MathHelper.clamp(diffusion, EXTEfx.AL_REVERB_MIN_DIFFUSION, EXTEfx.AL_REVERB_MAX_DIFFUSION);
+		gain = MathHelper.clamp(gain, EXTEfx.AL_REVERB_MIN_GAIN, EXTEfx.AL_REVERB_MAX_GAIN);
+		gainHF = MathHelper.clamp(gainHF, EXTEfx.AL_REVERB_MIN_GAINHF, EXTEfx.AL_REVERB_MAX_GAINHF);
+		decayTime = MathHelper.clamp(decayTime, EXTEfx.AL_REVERB_MIN_DECAY_TIME, EXTEfx.AL_REVERB_MAX_DECAY_TIME);
+		decayHFRatio = MathHelper.clamp(decayHFRatio, EXTEfx.AL_REVERB_MIN_DECAY_HFRATIO,
+				EXTEfx.AL_REVERB_MAX_DECAY_HFRATIO);
+		reflectionsGain = MathHelper.clamp(reflectionsGain, EXTEfx.AL_REVERB_MIN_REFLECTIONS_GAIN,
+				EXTEfx.AL_REVERB_MAX_REFLECTIONS_GAIN);
+		reflectionsDelay = MathHelper.clamp(reflectionsDelay, EXTEfx.AL_REVERB_MIN_REFLECTIONS_DELAY,
+				EXTEfx.AL_REVERB_MAX_REFLECTIONS_DELAY);
+		lateReverbGain = MathHelper.clamp(lateReverbGain, EXTEfx.AL_REVERB_MIN_LATE_REVERB_GAIN,
+				EXTEfx.AL_REVERB_MAX_LATE_REVERB_GAIN);
+		lateReverbDelay = MathHelper.clamp(lateReverbDelay, EXTEfx.AL_REVERB_MIN_LATE_REVERB_DELAY,
+				EXTEfx.AL_REVERB_MAX_LATE_REVERB_DELAY);
+		airAbsorptionGainHF = MathHelper.clamp(airAbsorptionGainHF, EXTEfx.AL_REVERB_MIN_AIR_ABSORPTION_GAINHF,
+				EXTEfx.AL_REVERB_MAX_AIR_ABSORPTION_GAINHF);
+		decayHFLimit = MathHelper.clamp(decayHFLimit, EXTEfx.AL_REVERB_MIN_DECAY_HFLIMIT,
+				EXTEfx.AL_REVERB_MAX_DECAY_HFLIMIT);
+	}
+
+	/**
+	 * Apply the reverb settings to OpenAL
+	 */
+	private void applyReverbSettings() {
+		// Temporarily set the gain to 0
+		EXTEfx.alAuxiliaryEffectSlotf(effectSlot, EXTEfx.AL_EFFECTSLOT_GAIN, 0);
+
+		// リバーブパラメータを設定
+		safeSetReverbParameter(EXTEfx.AL_REVERB_DENSITY, density);
+		safeSetReverbParameter(EXTEfx.AL_REVERB_DIFFUSION, diffusion);
+		safeSetReverbParameter(EXTEfx.AL_REVERB_GAIN, gain);
+		safeSetReverbParameter(EXTEfx.AL_REVERB_GAINHF, gainHF);
+		safeSetReverbParameter(EXTEfx.AL_REVERB_DECAY_TIME, decayTime);
+		safeSetReverbParameter(EXTEfx.AL_REVERB_DECAY_HFRATIO, decayHFRatio);
+		safeSetReverbParameter(EXTEfx.AL_REVERB_REFLECTIONS_GAIN, reflectionsGain);
+		safeSetReverbParameter(EXTEfx.AL_REVERB_REFLECTIONS_DELAY, reflectionsDelay);
+		safeSetReverbParameter(EXTEfx.AL_REVERB_LATE_REVERB_GAIN, lateReverbGain);
+		safeSetReverbParameter(EXTEfx.AL_REVERB_LATE_REVERB_DELAY, lateReverbDelay);
+		safeSetReverbParameter(EXTEfx.AL_REVERB_AIR_ABSORPTION_GAINHF, airAbsorptionGainHF);
+		safeSetReverbParameter(EXTEfx.AL_REVERB_ROOM_ROLLOFF_FACTOR, 0.0f);
+
+		try {
+			EXTEfx.alEffecti(effectId, EXTEfx.AL_REVERB_DECAY_HFLIMIT, decayHFLimit);
+		} catch (Exception e) {
+			// Log is handled by the parent class
+		}
+
+		// Apply the effect to the slot
+		applyEffectToSlot();
+	}
+
+	/**
+	 * Check if there is sky above
+	 */
+	private boolean hasSkyAbove(ClientWorld world, BlockPos pos) {
+		if (world.getDimension().hasCeiling()) {
+			return false;
+		}
+
 		Chunk chunk = world.getChunk(pos);
 		Heightmap heightMap = chunk.getHeightmap(Heightmap.Type.MOTION_BLOCKING);
 		int x = pos.getX() - chunk.getPos().getStartX();

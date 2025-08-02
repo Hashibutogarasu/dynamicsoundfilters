@@ -16,6 +16,10 @@ To setup the full development environment in eclipse use:
 
      gradlew genSources eclipse
 
+## Recent Changes
+
+The mod has been significantly refactored to improve code maintainability and extensibility. See CHANGELOG.md for detailed information about the architectural improvements.
+
 ## License
 
 This mod is available under the Apache License 2.0. See LICENSE.txt for more details.
